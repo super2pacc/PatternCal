@@ -8,3 +8,7 @@ venv/
 
 # Streamlit
 .streamlit/
+
+# Google API
+client_secret.json
+token.json

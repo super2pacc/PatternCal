@@ -8,6 +8,7 @@ import requests
 # Imports des modules locaux
 from translations import TRANSLATIONS
 from utils import parse_ics, extraire_informations_agenda
+from oauth import get_calendar_service, list_calendars, get_events_from_calendar, get_auth_url, get_credentials_from_code
 from oauth import get_calendar_service, list_calendars, get_events_from_calendar
 
 # --- Configuration de la page Streamlit ---
@@ -81,21 +82,31 @@ with col_top_left:
                     st.error(t["error_load"].format(e))
 
     with tab_oauth:
-        # Bouton de connexion
-        if st.button(t["connect_google"]):
-            try:
-                service = get_calendar_service()
-                if service:
-                    st.session_state.google_service = service
-                    st.success("Connecté !")
-                else:
-                    st.warning("Echec de la connexion (Vérifiez client_secret.json)")
-            except Exception as e:
-                st.error(f"Erreur OAuth: {e}")
+        # Gestion du Retour OAuth (Callback)
+        if "code" in st.query_params:
+            code = st.query_params["code"]
+            redirect_uri = "http://localhost:8501" 
+            
+            creds = get_credentials_from_code(code, redirect_uri)
+            if creds:
+                st.session_state.google_creds = creds
+                st.query_params.clear()
+                st.rerun()
+            else:
+                st.error("Erreur lors de l'authentification.")
+
+        # Vérification si connecté (via session_state ou token valide)
+        service = None
+        if 'google_creds' in st.session_state:
+             service = get_calendar_service(st.session_state.google_creds)
         
-        # Si connecté, on liste les agendas
-        if 'google_service' in st.session_state and st.session_state.google_service:
-            service = st.session_state.google_service
+        if service:
+            st.success("✅ Connecté à Google Calendar")
+            if st.button("Se déconnecter"):
+                del st.session_state.google_creds
+                st.rerun()
+            
+            # Listing Agendas
             try:
                 cals = list_calendars(service)
                 cal_options = {c['summary']: c['id'] for c in cals}
@@ -103,13 +114,23 @@ with col_top_left:
                 
                 if st.button(t["load_cal_btn"]):
                     cal_id = cal_options[selected_cal_name]
-                    # Récupération (par défaut 30/60 jours en arrière, ou on se base sur les filtres dates ?)
-                    # Pour simplifier, on prend large au fetch, le filtre UI fera le reste
                     events = get_events_from_calendar(service, cal_id, days_back=90)
                     st.session_state.raw_events = events
                     st.success(t["success_load"])
             except Exception as e:
                 st.error(f"Erreur API: {e}")
+
+        else:
+            # Bouton de connexion qui redirige
+            redirect_uri = "http://localhost:8501" 
+            
+            auth_url, err = get_auth_url(redirect_uri)
+            if auth_url:
+                st.link_button(t["connect_google"], auth_url)
+            elif err:
+                st.error(err)
+            else:
+                st.error("Erreur inconnue lors de la génération du lien.")
 
 with col_top_right:
     st.subheader(t["period"])

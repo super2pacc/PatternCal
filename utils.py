@@ -92,9 +92,20 @@ def extraire_informations_agenda(
     for event in events:
         titre = event["summary"]
         
+        # Normalisation Date : Tout en datetime naive
+        dt = event["dtstart"]
+        
+        # 1. Si c'est une date pure, on convertit en datetime minuit
+        if type(dt) is datetime.date: # Attention, datetime herite de date, d'ouv type()
+             dt = datetime.combine(dt, datetime.min.time())
+        
+        # 2. Si c'est un datetime, on retire la timezone (Excel aime pas trop non plus)
+        if isinstance(dt, datetime) and dt.tzinfo:
+             dt = dt.replace(tzinfo=None)
+             
         # Base de l'entrée
         entry = {
-            "Date": event["dtstart"],
+            "Date": dt,
             "Titre": titre,
         }
         
@@ -123,12 +134,6 @@ def extraire_informations_agenda(
         duree_td = event["duration"]
         duree_heures = duree_td.total_seconds() / 3600 if isinstance(duree_td, timedelta) else 0.0
         
-        # Nettoyage date pour Excel
-        dt_start = event["dtstart"]
-        if isinstance(dt_start, datetime) and dt_start.tzinfo:
-             dt_start = dt_start.replace(tzinfo=None)
-        
-        entry["Date"] = dt_start
         entry["Durée (h)"] = round(duree_heures, 2)
         
         donnees_traitees.append(entry)
@@ -136,6 +141,10 @@ def extraire_informations_agenda(
     df = pd.DataFrame(donnees_traitees)
     
     if not df.empty:
+        # Force la conversion en datetime pour éviter les erreurs PyArrow
+        # On force tout en datetime ns (standard pandas)
+        df["Date"] = pd.to_datetime(df["Date"])
+
         dynamic_cols = [c["name"] for c in regex_configs]
         cols_order = ["Date", "Titre"] + dynamic_cols + ["Durée (h)"]
         final_cols = [c for c in cols_order if c in df.columns]
