@@ -4,3 +4,5 @@ streamlit
 icalendar
 openpyxl
 requests
+google-auth-oauthlib
+google-api-python-client
