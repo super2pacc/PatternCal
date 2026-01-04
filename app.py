@@ -82,14 +82,21 @@ with col_top_left:
                     st.error(t["error_load"].format(e))
 
     with tab_oauth:
+        # Détermination de l'URL de redirection
+        # En prod (Streamlit Cloud), il faut définir "redirect_url" dans les secrets
+        # En local, on fallback sur localhost
+        redirect_uri = "http://localhost:8501"
+        if "google_oauth" in st.secrets and "redirect_url" in st.secrets["google_oauth"]:
+            redirect_uri = st.secrets["google_oauth"]["redirect_url"]
+
         # Gestion du Retour OAuth (Callback)
         if "code" in st.query_params:
             code = st.query_params["code"]
-            redirect_uri = "http://localhost:8501" 
             
             creds = get_credentials_from_code(code, redirect_uri)
             if creds:
                 st.session_state.google_creds = creds
+                # Nettoyage de l'URL
                 st.query_params.clear()
                 st.rerun()
             else:
@@ -122,8 +129,6 @@ with col_top_left:
 
         else:
             # Bouton de connexion qui redirige
-            redirect_uri = "http://localhost:8501" 
-            
             auth_url, err = get_auth_url(redirect_uri)
             if auth_url:
                 st.link_button(t["connect_google"], auth_url)
