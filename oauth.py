@@ -14,6 +14,7 @@ def get_oauth_flow(redirect_uri):
     
     # 1. Priorité : Secrets Streamlit Cloud (Production)
     try:
+        # st.secrets._parse() lève StreamlitSecretNotFoundError si absent
         if "google_oauth" in st.secrets:
             # st.secrets convertit le TOML en dict, on doit adapter pour Flow
             client_config = {"web": st.secrets["google_oauth"]}
@@ -24,8 +25,7 @@ def get_oauth_flow(redirect_uri):
             )
             return flow
     except Exception:
-        # En local sans secrets.toml, st.secrets peut lever une erreur.
-        # On ignore et on passe au fallback.
+        # En local sans secrets.toml ou clé manquante, on continue vers le fallback
         pass
         
     # 2. Fallback : Fichier JSON (Local)

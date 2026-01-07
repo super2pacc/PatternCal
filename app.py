@@ -86,8 +86,12 @@ with col_top_left:
         # En prod (Streamlit Cloud), il faut définir "redirect_url" dans les secrets
         # En local, on fallback sur localhost
         redirect_uri = "http://localhost:8501"
-        if "google_oauth" in st.secrets and "redirect_url" in st.secrets["google_oauth"]:
-            redirect_uri = st.secrets["google_oauth"]["redirect_url"]
+        try:
+            if "google_oauth" in st.secrets and "redirect_url" in st.secrets["google_oauth"]:
+                redirect_uri = st.secrets["google_oauth"]["redirect_url"]
+        except Exception:
+            # En local sans secrets.toml, st.secrets lève StreamlitSecretNotFoundError
+            pass
 
         # Gestion du Retour OAuth (Callback)
         if "code" in st.query_params:
