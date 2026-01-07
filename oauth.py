@@ -6,8 +6,12 @@ from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 import streamlit as st
 
-# Scopes nécessaires (Lecture seule)
-SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
+# Scopes nécessaires (Lecture seule Calendar, accès Drive et Docs pour facturation)
+SCOPES = [
+    'https://www.googleapis.com/auth/calendar.readonly',
+    'https://www.googleapis.com/auth/drive',
+    'https://www.googleapis.com/auth/documents'
+]
 
 def get_oauth_flow(redirect_uri):
     """Crée l'objet Flow à partir des secrets (st.secrets ou fichier JSON)."""

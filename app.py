@@ -10,6 +10,7 @@ from translations import TRANSLATIONS
 from utils import parse_ics, extraire_informations_agenda
 from oauth import get_calendar_service, list_calendars, get_events_from_calendar, get_auth_url, get_credentials_from_code
 from oauth import get_calendar_service, list_calendars, get_events_from_calendar
+from invoice import get_services, extract_id_from_url, generate_invoice
 
 # --- Configuration de la page Streamlit ---
 st.set_page_config(page_title="PatternCal", layout="wide", page_icon="📅")
@@ -135,7 +136,8 @@ with col_top_left:
             # Bouton de connexion qui redirige
             auth_url, err = get_auth_url(redirect_uri)
             if auth_url:
-                st.link_button(t["connect_google"], auth_url)
+                # st.link_button ouvre souvent un nouvel onglet. On force le même onglet avec du HTML.
+                st.markdown(f'<a href="{auth_url}" target="_self" style="background-color: #f0f2f6; color: #31333F; padding: 0.5rem; text-decoration: none; border: 1px solid #d6d6d8; border-radius: 0.25rem; display: inline-block;">{t["connect_google"]}</a>', unsafe_allow_html=True)
             elif err:
                 st.error(err)
             else:
@@ -236,45 +238,23 @@ if st.session_state.raw_events is not None:
     if not df_final.empty:
         st.subheader(t["results"])
         
+        # Identification de la colonne de regroupement (Client) - AVANT les tabs
+        col_client = None
+        candidates = [c for c in df_final.columns if "client" in c.lower()]
+        if candidates:
+            col_client = candidates[0]
+        elif "Client" in [c["name"] for c in st.session_state.regex_config]:
+                col_client = "Client"
+
         tab_detail, tab_synthese = st.tabs([t["tab_detail"], t["tab_synthesis"]])
         
         with tab_detail:
             st.dataframe(df_final, use_container_width=True)
-            
-            # Zone d'export Détail
-            st.write("---")
-            col_exp_opt, col_exp_btn = st.columns([1, 2])
-            with col_exp_opt:
-                format_export = st.selectbox(
-                    t["export_format"], 
-                    ["CSV", "Excel (.xlsx)", t["gs_soon"]],
-                    label_visibility="collapsed",
-                    key="fmt_det"
-                )
-            
-            with col_exp_btn:
-                if format_export == "CSV":
-                    csv = df_final.to_csv(index=False).encode('utf-8')
-                    st.download_button(label=t["dl_csv"], data=csv, file_name='events_detail.csv', mime='text/csv')
-                elif format_export == "Excel (.xlsx)":
-                    buffer = io.BytesIO()
-                    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                        df_final.to_excel(writer, index=False, sheet_name='Détail')
-                    st.download_button(label=t["dl_excel"], data=buffer.getvalue(), file_name='events_detail.xlsx', mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-                else:
-                    st.button(t["gs_btn"], disabled=True)
+            # Export Buttons removed as requested
 
         with tab_synthese:
-            # Identification de la colonne de regroupement (Client)
-            col_client = None
-            candidates = [c for c in df_final.columns if "client" in c.lower()]
-            if candidates:
-                col_client = candidates[0]
-            elif "Client" in [c["name"] for c in st.session_state.regex_config]:
-                 col_client = "Client"
-            
             if col_client and col_client in df_final.columns:
-                # Agrégation (Reste ici car spécifique UI/pandas)
+                # Agrégation
                 numeric_cols = df_final.select_dtypes(include=[np.number]).columns.tolist()
                 df_grouped = df_final.groupby(col_client)[numeric_cols].sum().reset_index()
                 
@@ -282,32 +262,93 @@ if st.session_state.raw_events is not None:
                     df_grouped = df_grouped.sort_values("Durée (h)", ascending=False)
                     
                 st.dataframe(df_grouped, use_container_width=True)
-                
-                # Export Synthèse
-                st.write("---")
-                col_exp_opt_g, col_exp_btn_g = st.columns([1, 2])
-                with col_exp_opt_g:
-                     format_export_g = st.selectbox(
-                        t["export_format"], 
-                        ["CSV", "Excel (.xlsx)", t["gs_soon"]],
-                        label_visibility="collapsed",
-                        key="fmt_syn"
-                    )
-                
-                with col_exp_btn_g:
-                    if format_export_g == "CSV":
-                        csv_g = df_grouped.to_csv(index=False).encode('utf-8')
-                        st.download_button(label=t["dl_csv"], data=csv_g, file_name='synthese_client.csv', mime='text/csv')
-                    elif format_export_g == "Excel (.xlsx)":
-                        buffer_g = io.BytesIO()
-                        with pd.ExcelWriter(buffer_g, engine='openpyxl') as writer:
-                            df_grouped.to_excel(writer, index=False, sheet_name='Synthèse')
-                        st.download_button(label=t["dl_excel"], data=buffer_g.getvalue(), file_name='synthese_client.xlsx', mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-                    else:
-                        st.button(t["gs_btn"], disabled=True, key="btn_gs_syn")
-                    
+                # Export Buttons removed as requested
             else:
                 st.info("Aucune colonne 'Client' détectée pour le regroupement. Vérifiez vos règles d'extraction.")
+
+        st.divider()
+        
+        # --- Etape 5 : Génération de Factures ---
+        st.header("5. Génération de Factures (Google Docs)")
+        
+        if col_client and col_client in df_final.columns:
+            c_inv1, c_inv2 = st.columns(2)
+            with c_inv1:
+                template_url = st.text_input("URL du Template Google Doc", placeholder="https://docs.google.com/document/d/...")
+            with c_inv2:
+                folder_url = st.text_input("URL du Dossier de Destination", placeholder="https://drive.google.com/drive/folders/...")
+            
+            if st.button("Générer les factures 🧾"):
+                if not template_url or not folder_url:
+                    st.warning("Veuillez fournir les deux URLs.")
+                elif 'google_creds' not in st.session_state:
+                        st.error("Vous devez être connecté à Google pour générer des factures.")
+                else:
+                    template_id = extract_id_from_url(template_url)
+                    folder_id = extract_id_from_url(folder_url)
+                    
+                    try:
+                        # Construction des services
+                        drive_service, docs_service = get_services(st.session_state.google_creds)
+                        
+                        progress_bar = st.progress(0)
+                        status_text = st.empty()
+                        
+                        groups = df_final.groupby(col_client)
+                        total_groups = len(groups)
+                        
+                        results_links = []
+                        
+                        for idx, (client_name, group) in enumerate(groups):
+                            status_text.text(f"Génération pour {client_name}...")
+                            
+                            # Préparation des données
+                            nb_presta = len(group)
+                            cout_total = 0
+                            # Recherche d'une colonne de montant
+                            for col in group.columns:
+                                if "montant" in col.lower() or "price" in col.lower() or "eur" in col.lower():
+                                        try:
+                                            cout_total = group[col].sum()
+                                        except:
+                                            pass
+                                        break
+                            
+                            # Liste des dates
+                            dates = []
+                            for _, row in group.iterrows():
+                                start = row.get("Date")
+                                if start:
+                                        if isinstance(start, (datetime, pd.Timestamp)):
+                                            dates.append(start.strftime("%d/%m/%Y"))
+                                        else:
+                                            dates.append(str(start))
+                            liste_dates = ", ".join(dates)
+                            
+                            invoice_data = {
+                                "CLIENT_NOM": client_name,
+                                "NOMBRE_PRESTATION": nb_presta,
+                                "COUT_TOTAL": f"{cout_total:.2f} €",
+                                "LISTE_DATE_PRESTATION": liste_dates
+                            }
+                            
+                            try:
+                                res = generate_invoice(drive_service, docs_service, template_id, folder_id, invoice_data)
+                                results_links.append(f"- {client_name}: [PDF]({res['pdf_link']})")
+                            except Exception as e:
+                                st.error(f"Erreur pour {client_name}: {e}")
+                            
+                            progress_bar.progress((idx + 1) / total_groups)
+                            
+                        status_text.text("Terminé !")
+                        st.success("Toutes les factures ont été générées.")
+                        if results_links:
+                            st.markdown("\n".join(results_links))
+                            
+                    except Exception as e:
+                        st.error(f"Erreur globale : {e}")
+        else:
+            st.warning("Impossible de générer des factures sans colonne 'Client'.")
 
         st.divider()
         
