@@ -10,7 +10,8 @@ import streamlit as st
 SCOPES = [
     'https://www.googleapis.com/auth/calendar.readonly',
     'https://www.googleapis.com/auth/drive',
-    'https://www.googleapis.com/auth/documents'
+    'https://www.googleapis.com/auth/documents',
+    'https://www.googleapis.com/auth/spreadsheets.readonly'
 ]
 
 def get_oauth_flow(redirect_uri):

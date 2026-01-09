@@ -52,25 +52,22 @@ def generate_invoice(drive_service, docs_service, template_id, folder_id, data):
     if not new_doc_id:
         raise Exception("Échec de la copie du template.")
         
-    # 2. Remplacement des Balises
+    # 2. Remplacement des Balises (Dynamique via colonnes)
     requests = []
     
-    # Mapping des clés vers les balises
-    replacements = {
-        "{{CLIENT_NOM}}": str(data.get("CLIENT_NOM", "")),
-        "{{NOMBRE_PRESTATION}}": str(data.get("NOMBRE_PRESTATION", "")),
-        "{{COUT_TOTAL}}": str(data.get("COUT_TOTAL", "")),
-        "{{LISTE_DATE_PRESTATION}}": str(data.get("LISTE_DATE_PRESTATION", ""))
-    }
-    
-    for placeholder, value in replacements.items():
+    # On itère sur toutes les données passées pour créer les balises correspondantes
+    # ex: data["Adresse"] -> {{Adresse}}
+    for key, val in data.items():
+        placeholder = f"{{{{{key}}}}}" # {{KEY}}
+        value_str = str(val) if val is not None else ""
+        
         requests.append({
             'replaceAllText': {
                 'containsText': {
                     'text': placeholder,
                     'matchCase': True
                 },
-                'replaceText': value
+                'replaceText': value_str
             }
         })
         

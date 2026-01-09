@@ -11,6 +11,7 @@ from utils import parse_ics, extraire_informations_agenda
 from oauth import get_calendar_service, list_calendars, get_events_from_calendar, get_auth_url, get_credentials_from_code
 from oauth import get_calendar_service, list_calendars, get_events_from_calendar
 from invoice import get_services, extract_id_from_url, generate_invoice
+from sheets import get_sheets_service, get_sheet_data, extract_spreadsheet_id
 
 # --- Configuration de la page Streamlit ---
 st.set_page_config(page_title="PatternCal", layout="wide", page_icon="📅")
@@ -55,93 +56,61 @@ col_top_left, col_top_right = st.columns([1, 1], gap="large")
 
 with col_top_left:
     st.subheader(t["source"])
-    tab_file, tab_link, tab_oauth = st.tabs([t["tab_file"], t["tab_link"], t["tab_oauth"]])
     
-    with tab_file:
-        uploaded_file = st.file_uploader(t["upload_label"], type="ics", label_visibility="collapsed", help=t["upload_help"])
-        if uploaded_file is not None:
-             # Parsing immédiat
-             try:
-                events = parse_ics(uploaded_file.getvalue(), translations=t)
-                st.session_state.raw_events = events
-             except Exception as e:
-                st.error(str(e))
-            
-    with tab_link:
-        ics_url = st.text_input(t["url_label"], 
-                                placeholder=t["url_placeholder"],
-                                help=t["url_help"])
-        if ics_url:
-            if st.button(t["load_btn"]):
-                try:
-                    resp = requests.get(ics_url)
-                    resp.raise_for_status()
-                    events = parse_ics(resp.content, translations=t)
-                    st.session_state.raw_events = events
-                    st.success(t["success_load"])
-                except Exception as e:
-                    st.error(t["error_load"].format(e))
+    # Détermination de l'URL de redirection
+    redirect_uri = "http://localhost:8501"
+    try:
+        if "google_oauth" in st.secrets and "redirect_url" in st.secrets["google_oauth"]:
+            redirect_uri = st.secrets["google_oauth"]["redirect_url"]
+    except Exception:
+        # En local sans secrets.toml, st.secrets peut lever une erreur
+        pass
 
-    with tab_oauth:
-        # Détermination de l'URL de redirection
-        # En prod (Streamlit Cloud), il faut définir "redirect_url" dans les secrets
-        # En local, on fallback sur localhost
-        redirect_uri = "http://localhost:8501"
-        try:
-            if "google_oauth" in st.secrets and "redirect_url" in st.secrets["google_oauth"]:
-                redirect_uri = st.secrets["google_oauth"]["redirect_url"]
-        except Exception:
-            # En local sans secrets.toml, st.secrets lève StreamlitSecretNotFoundError
-            pass
-
-        # Gestion du Retour OAuth (Callback)
-        if "code" in st.query_params:
-            code = st.query_params["code"]
-            
-            creds = get_credentials_from_code(code, redirect_uri)
-            if creds:
-                st.session_state.google_creds = creds
-                # Nettoyage de l'URL
-                st.query_params.clear()
-                st.rerun()
-            else:
-                st.error("Erreur lors de l'authentification.")
-
-        # Vérification si connecté (via session_state ou token valide)
-        service = None
-        if 'google_creds' in st.session_state:
-             service = get_calendar_service(st.session_state.google_creds)
-        
-        if service:
-            st.success("✅ Connecté à Google Calendar")
-            if st.button("Se déconnecter"):
-                del st.session_state.google_creds
-                st.rerun()
-            
-            # Listing Agendas
-            try:
-                cals = list_calendars(service)
-                cal_options = {c['summary']: c['id'] for c in cals}
-                selected_cal_name = st.selectbox(t["select_cal"], list(cal_options.keys()))
-                
-                if st.button(t["load_cal_btn"]):
-                    cal_id = cal_options[selected_cal_name]
-                    events = get_events_from_calendar(service, cal_id, days_back=90)
-                    st.session_state.raw_events = events
-                    st.success(t["success_load"])
-            except Exception as e:
-                st.error(f"Erreur API: {e}")
-
+    # Gestion du Retour OAuth (Callback)
+    if "code" in st.query_params:
+        code = st.query_params["code"]
+        creds = get_credentials_from_code(code, redirect_uri)
+        if creds:
+            st.session_state.google_creds = creds
+            st.query_params.clear()
+            st.rerun()
         else:
-            # Bouton de connexion qui redirige
-            auth_url, err = get_auth_url(redirect_uri)
-            if auth_url:
-                # st.link_button ouvre souvent un nouvel onglet. On force le même onglet avec du HTML.
-                st.markdown(f'<a href="{auth_url}" target="_self" style="background-color: #f0f2f6; color: #31333F; padding: 0.5rem; text-decoration: none; border: 1px solid #d6d6d8; border-radius: 0.25rem; display: inline-block;">{t["connect_google"]}</a>', unsafe_allow_html=True)
-            elif err:
-                st.error(err)
-            else:
-                st.error("Erreur inconnue lors de la génération du lien.")
+            st.error("Erreur lors de l'authentification.")
+
+    # Vérification si connecté
+    service = None
+    if 'google_creds' in st.session_state:
+         service = get_calendar_service(st.session_state.google_creds)
+    
+    if service:
+        st.success("✅ Connecté à Google Calendar")
+        if st.button("Se déconnecter"):
+            del st.session_state.google_creds
+            st.rerun()
+        
+        # Listing Agendas
+        try:
+            cals = list_calendars(service)
+            cal_options = {c['summary']: c['id'] for c in cals}
+            selected_cal_name = st.selectbox(t["select_cal"], list(cal_options.keys()))
+            
+            if st.button(t["load_cal_btn"]):
+                cal_id = cal_options[selected_cal_name]
+                events = get_events_from_calendar(service, cal_id, days_back=90)
+                st.session_state.raw_events = events
+                st.success(t["success_load"])
+        except Exception as e:
+            st.error(f"Erreur API: {e}")
+
+    else:
+        # Bouton de connexion
+        auth_url, err = get_auth_url(redirect_uri)
+        if auth_url:
+             st.markdown(f'<a href="{auth_url}" target="_self" style="background-color: #f0f2f6; color: #31333F; padding: 0.5rem; text-decoration: none; border: 1px solid #d6d6d8; border-radius: 0.25rem; display: inline-block;">{t["connect_google"]}</a>', unsafe_allow_html=True)
+        elif err:
+            st.error(err)
+        else:
+            st.error("Erreur inconnue.")
 
 with col_top_right:
     st.subheader(t["period"])
@@ -205,6 +174,32 @@ with b_col2:
 
 st.divider()
 
+st.divider()
+
+# --- Etape 3 : Enrichissement Données (Google Sheet) ---
+st.subheader("3. Enrichissement de données (Optionnel)")
+sheet_url = st.text_input("URL Google Sheet pour enrichissement", placeholder="https://docs.google.com/spreadsheets/d/...")
+
+if sheet_url:
+    if 'google_creds' not in st.session_state:
+         st.warning("Veuillez vous connecter à Google (Step 1) pour lire la Google Sheet.")
+    else:
+        try:
+             # Lecture Sheet
+             sheet_service = get_sheets_service(st.session_state.google_creds)
+             sheet_id = extract_spreadsheet_id(sheet_url)
+             df_sheet = get_sheet_data(sheet_service, sheet_id)
+             
+             if not df_sheet.empty:
+                 # Tentative de fusion
+                 # On cherche une colonne commune entre df_final (qui n'existe pas encore ici, c'est le hic)
+                 # On doit enrichir df_final APRES l'extraction.
+                 pass
+             else:
+                 st.info("La Google Sheet semble vide ou illisible.")
+        except Exception as e:
+             st.error(f"Erreur lecture Sheet: {e}")
+
 if st.session_state.raw_events is not None:
     # Les événements sont déjà parsés et stockés dans raw_events
     raw_events = st.session_state.raw_events
@@ -234,6 +229,34 @@ if st.session_state.raw_events is not None:
         events_filtrés, 
         st.session_state.regex_config
     )
+    
+    # --- LOGIQUE ENRICHISSEMENT ---
+    # Si on a chargé une sheet valide plus haut
+    if sheet_url and 'google_creds' in st.session_state:
+          try:
+             sheet_service = get_sheets_service(st.session_state.google_creds)
+             sheet_id = extract_spreadsheet_id(sheet_url)
+             df_sheet = get_sheet_data(sheet_service, sheet_id)
+             
+             if not df_sheet.empty and not df_final.empty:
+                 # Intersection des colonnes
+                 cats_cols = set(df_final.columns)
+                 sheet_cols = set(df_sheet.columns)
+                 common = list(cats_cols.intersection(sheet_cols))
+                 
+                 if common:
+                     pivot_col = common[0] # On prend la première trouvée
+                     st.info(f"Fusion des données sur la colonne clé : **{pivot_col}**")
+                     
+                     # Left Join
+                     df_final = pd.merge(df_final, df_sheet, on=pivot_col, how='left')
+                     st.success("Données enrichies avec succès !")
+                 else:
+                     st.warning(f"Aucune colonne commune trouvée entre l'agenda {list(df_final.columns)} et la Sheet {list(df_sheet.columns)}.")
+          except Exception as e:
+                # Déjà affiché plus haut, ou on gère silence ici
+                pass
+
     
     if not df_final.empty:
         st.subheader(t["results"])
@@ -302,36 +325,44 @@ if st.session_state.raw_events is not None:
                         for idx, (client_name, group) in enumerate(groups):
                             status_text.text(f"Génération pour {client_name}...")
                             
-                            # Préparation des données
+                            # 1. Récupération des données statiques (la première ligne du groupe)
+                            # On convertit la première ligne en dictionnaire pour avoir accès à toutes les colonnes
+                            # (Client, Email, Adresse, etc. venant de l'enrichissement ou du regex)
+                            first_row = group.iloc[0].to_dict()
+                            
+                            # On nettoie les clés (optionnel, mais propre) et les valeurs (NaN -> "")
+                            invoice_data = {k: (v if pd.notna(v) else "") for k, v in first_row.items()}
+                            
+                            # 2. Ajout des Champs Calculés (suffixe _CALC ou noms explicites comme avant)
                             nb_presta = len(group)
                             cout_total = 0
                             # Recherche d'une colonne de montant
                             for col in group.columns:
                                 if "montant" in col.lower() or "price" in col.lower() or "eur" in col.lower():
-                                        try:
-                                            cout_total = group[col].sum()
-                                        except:
-                                            pass
-                                        break
+                                     try:
+                                         # On force la conversion en numérique pour éviter la concaténation de str
+                                         cout_total = pd.to_numeric(group[col], errors='coerce').sum()
+                                     except:
+                                         pass
+                                     break
                             
                             # Liste des dates
                             dates = []
                             for _, row in group.iterrows():
                                 start = row.get("Date")
                                 if start:
-                                        if isinstance(start, (datetime, pd.Timestamp)):
-                                            dates.append(start.strftime("%d/%m/%Y"))
-                                        else:
-                                            dates.append(str(start))
+                                     if isinstance(start, (datetime, pd.Timestamp)):
+                                         dates.append(start.strftime("%d/%m/%Y"))
+                                     else:
+                                         dates.append(str(start))
                             liste_dates = ", ".join(dates)
                             
-                            invoice_data = {
-                                "CLIENT_NOM": client_name,
-                                "NOMBRE_PRESTATION": nb_presta,
-                                "COUT_TOTAL": f"{cout_total:.2f} €",
-                                "LISTE_DATE_PRESTATION": liste_dates
-                            }
-                            
+                            # On écrase/ajoute les champs calculés standards
+                            invoice_data["CLIENT_NOM"] = client_name
+                            invoice_data["NOMBRE_PRESTATION"] = nb_presta
+                            invoice_data["COUT_TOTAL"] = f"{cout_total:.2f} €"
+                            invoice_data["LISTE_DATE_PRESTATION"] = liste_dates
+
                             try:
                                 res = generate_invoice(drive_service, docs_service, template_id, folder_id, invoice_data)
                                 results_links.append(f"- {client_name}: [PDF]({res['pdf_link']})")
