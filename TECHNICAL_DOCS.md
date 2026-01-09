@@ -1,7 +1,7 @@
 # Documentation Technique - PatternCal
 
 ## 📝 Présentation
-**PatternCal** est une application Streamlit conçue pour transformer des données brutes d'agenda (fichiers `.ics` ou Google Calendar) en rapports facturables et en factures PDF. Elle permet l'extraction intelligente d'informations via des expressions régulières (Regex), l'enrichissement de données via Google Sheets, et la génération de documents via Google Docs/Drive.
+**PatternCal** est une application Streamlit conçue pour transformer des données brutes de Google Calendar en rapports facturables et en factures PDF. Elle permet l'extraction intelligente d'informations via des expressions régulières (Regex), l'enrichissement de données via Google Sheets, et la génération de documents via Google Docs/Drive.
 
 ## 🏗 Architecture Télésurveillée
 
@@ -10,7 +10,7 @@
 PatternCal/
 ├── app.py              # Point d'entrée principal (UI Streamlit & Orchestration)
 ├── oauth.py            # Gestion de l'authentification Google OAuth
-├── utils.py            # Logique métier (Parsing ICS, Regex, Calculs)
+├── utils.py            # Logique métier (Regex, Calculs)
 ├── invoice.py          # Module Facturation (Google Docs & Drive API)
 ├── sheets.py           # Module Enrichissement (Google Sheets API)
 ├── translations.py     # Dictionnaire de traduction (FR/EN/ES)
@@ -37,7 +37,7 @@ PatternCal/
 ### `app.py`
 Le cœur de l'application. Il gère :
 *   L'état de la session (`st.session_state`) : stockage des événements bruts, des configurations Regex, des credentials.
-*   L'interface utilisateur (Tabs, Sidebars, Inputs).
+*   L'interface utilisateur (Sidebars, Inputs).
 *   L'intégration de tous les sous-modules pour former le pipeline complet.
 
 ### `oauth.py`
@@ -51,7 +51,6 @@ Gère l'authentification OAuth 2.0 avec Google.
 
 ### `utils.py`
 Contient la logique pure, sans dépendance directe forte à l'UI.
-*   `parse_ics()` : Lit un fichier binaire ICS et renvoie une liste de dicts standardisés.
 *   `extraire_informations_agenda()` :
     *   Prend les événements et une config Regex.
     *   Applique les regex sur les titres (`summary`).
